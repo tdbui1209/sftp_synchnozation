@@ -1,54 +1,92 @@
 import pysftp
 import os
+import stat
+
+
+def recursive_listdir_local(directory):
+    file_attrs = {}
+    for file in os.listdir(directory):
+        file_path = os.path.join(directory, file)
+        if os.path.isdir(file_path):
+            file_attrs[file] = recursive_listdir_local(file_path)
+        else:
+            local_modified_timestamp = os.path.getmtime(file_path)
+            local_modified_timestamp = int(local_modified_timestamp)
+            file_attrs[file] = local_modified_timestamp
+    return file_attrs
 
 
 # take list files with modified timestamp in local directory
 def take_file_timestamps_of_local(local_directory):
     local_directory_files = {}
-    for file in os.listdir(local_directory):
-        local_file_path = os.path.join(local_directory, file)
-        local_modified_timestamp = os.path.getmtime(local_file_path)  # Local time GTM+7
-        local_modified_timestamp = int(local_modified_timestamp) - (7*60*60)  # minus 7 hours to match time with remote
-        local_directory_files[file] = local_modified_timestamp
+    local_directory_files = recursive_listdir_local(local_directory)
     return local_directory_files
 
 
+# recursive listdir on remote directory
+def recursive_listdir_remote(sftp, directory):
+    file_attrs = {}
+    for attr in sftp.listdir_attr(directory):
+        if stat.S_ISDIR(attr.st_mode):
+            sftp.chdir(directory + '/' + attr.filename)
+            file_attrs[attr.filename] = recursive_listdir_remote(sftp, '.')
+            sftp.chdir('..')
+        else:
+            remote_modified_timestamp = int(attr.st_mtime)
+            file_attrs[attr.filename] = remote_modified_timestamp
+    return file_attrs
+
+
 # take list files with modified timestamp in remote directory
-def take_file_timestamps_of_remote(remote_directory, sftp):
+def take_file_timestamps_of_remote(sftp, remote_directory='/'):
     remote_directory_files = {}
-    for attr in sftp.listdir_attr():
-        name = attr.filename
-        remote_modified_timestamp = int(attr.st_mtime)
-        remote_directory_files[name] = remote_modified_timestamp  # UTC
+    sftp.chdir(remote_directory)
+    remote_directory_files = recursive_listdir_remote(sftp, remote_directory)
     return remote_directory_files
 
 
-# synchronize
-def sync():
-    local_directory_files = take_file_timestamps_of_local(LOCAL_DIRECTORY)
-    with pysftp.Connection(host=SFTP_IP, username=SFTP_USR, password=SFTP_PWD, cnopts=cnopts) as sftp:
-        remote_directory_files = take_file_timestamps_of_remote(REMOTE_DIRECTORY, sftp)
-        for file_name, timestamp in remote_directory_files.items():
-            local_file_path = os.path.join(LOCAL_DIRECTORY, file_name)
-            if file_name in local_directory_files.keys():
+def recursive_sync(local_directory, local_directory_files, remote_directory_files, sftp):
+    os.makedirs(local_directory, exist_ok=True)
+    for file_name, timestamp in remote_directory_files.items():
+        local_file_path = os.path.join(local_directory, file_name)
+        if file_name in local_directory_files.keys():
+            if isinstance(timestamp, dict):
+                sftp.chdir(file_name)
+                recursive_sync(local_file_path, local_directory_files[file_name], timestamp, sftp)
+                sftp.chdir('..')
+            else:
                 if timestamp > local_directory_files[file_name]:
                     # remove older file at local directory, download newest file from remote directory
                     os.remove(local_file_path)
-                    print('Removed:', file_name)
+                    print('Removed:', local_file_path)
 
                     sftp.get(file_name, local_file_path, preserve_mtime=True)
-                    print('Downloaded:', file_name)
+                    print('Downloaded:', local_file_path)
+        else:
+            if isinstance(timestamp, dict):
+                os.makedirs(local_file_path, exist_ok=True)
+                sftp.chdir(file_name)
+                recursive_sync(local_file_path, {}, timestamp, sftp)
+                sftp.chdir('..')
             else:
                 # download newest file from remote directory
                 sftp.get(file_name, local_file_path, preserve_mtime=True)
-                print('Downloaded:', file_name)
+                print('Downloaded:', local_file_path)
 
-        for file_name in local_directory_files.keys():
-            if file_name not in remote_directory_files.keys():
-                local_file_path = os.path.join(LOCAL_DIRECTORY, file_name)
-                # remove file if not in remote directory
-                os.remove(local_file_path)
-                print('Removed:', file_name)
+    for file_name in local_directory_files.keys():
+        if file_name not in remote_directory_files.keys():
+            local_file_path = os.path.join(local_directory, file_name)
+            # remove file if not in remote directory
+            os.remove(local_file_path)
+            print('Removed:', local_file_path)
+
+
+# synchronize
+def sync(local_directory, remote_directory):
+    local_directory_files = take_file_timestamps_of_local(local_directory)
+    with pysftp.Connection(host=SFTP_IP, username=SFTP_USR, password=SFTP_PWD, cnopts=cnopts) as sftp:
+        remote_directory_files = take_file_timestamps_of_remote(sftp, remote_directory)
+        recursive_sync(local_directory, local_directory_files, remote_directory_files, sftp)
 
 
 if __name__ == '__main__':
@@ -61,4 +99,4 @@ if __name__ == '__main__':
 
     cnopts = pysftp.CnOpts(knownhosts=KNOWNHOSTS_PATH)
     cnopts.hostkeys = None
-    sync()
+    sync(LOCAL_DIRECTORY, REMOTE_DIRECTORY)
