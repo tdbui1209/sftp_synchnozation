@@ -1,8 +1,10 @@
 import pysftp
 import os
 import stat
+import time
 
 
+# recursive listdir on local directory
 def recursive_listdir_local(directory):
     file_attrs = {}
     for file in os.listdir(directory):
@@ -45,6 +47,7 @@ def take_file_timestamps_of_remote(sftp, remote_directory='/'):
     return remote_directory_files
 
 
+# recursive synchronize
 def recursive_sync(local_directory, local_directory_files, remote_directory_files, sftp):
     os.makedirs(local_directory, exist_ok=True)
     for file_name, timestamp in remote_directory_files.items():
@@ -82,11 +85,22 @@ def recursive_sync(local_directory, local_directory_files, remote_directory_file
 
 
 # synchronize
-def sync(local_directory, remote_directory):
+def sync(sftp_ip, sftp_usr, sftp_pwd, cnopts, local_directory, remote_directory):
+    print('Synchronizing...')
     local_directory_files = take_file_timestamps_of_local(local_directory)
-    with pysftp.Connection(host=SFTP_IP, username=SFTP_USR, password=SFTP_PWD, cnopts=cnopts) as sftp:
-        remote_directory_files = take_file_timestamps_of_remote(sftp, remote_directory)
-        recursive_sync(local_directory, local_directory_files, remote_directory_files, sftp)
+    try:
+        sftp = pysftp.Connection(host=sftp_ip, username=sftp_usr, password=sftp_pwd, cnopts=cnopts)
+    except:
+        print('Connection failed!')
+    else:
+        print('Connection successful!\n')
+        t1 = time.time()
+        with sftp:
+            remote_directory_files = take_file_timestamps_of_remote(sftp, remote_directory)
+            recursive_sync(local_directory, local_directory_files, remote_directory_files, sftp)
+        t2 = time.time()
+        print('\nSynchronization was completed!')
+        print('Synchronization time:', t2 - t1, 'second(s)')
 
 
 if __name__ == '__main__':
@@ -99,4 +113,4 @@ if __name__ == '__main__':
 
     cnopts = pysftp.CnOpts(knownhosts=KNOWNHOSTS_PATH)
     cnopts.hostkeys = None
-    sync(LOCAL_DIRECTORY, REMOTE_DIRECTORY)
+    sync(SFTP_IP, SFTP_USR, SFTP_PWD, cnopts, LOCAL_DIRECTORY, REMOTE_DIRECTORY)
