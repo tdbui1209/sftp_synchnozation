@@ -2,6 +2,7 @@ import pysftp
 import os
 import stat
 import time
+import shutil
 
 
 # recursive listdir on local directory
@@ -60,7 +61,10 @@ def recursive_sync(local_directory, local_directory_files, remote_directory_file
             else:
                 if timestamp > local_directory_files[file_name]:
                     # remove older file at local directory, download newest file from remote directory
-                    os.remove(local_file_path)
+                    if os.path.isdir(local_file_path):
+                        shutil.rmtree(local_file_path)
+                    else:
+                        os.remove(local_file_path)
                     print('Removed:', local_file_path)
 
                     sftp.get(file_name, local_file_path, preserve_mtime=True)
@@ -80,7 +84,10 @@ def recursive_sync(local_directory, local_directory_files, remote_directory_file
         if file_name not in remote_directory_files.keys():
             local_file_path = os.path.join(local_directory, file_name)
             # remove file if not in remote directory
-            os.remove(local_file_path)
+            if os.path.isdir(local_file_path):
+                shutil.rmtree(local_file_path)
+            else:
+                os.remove(local_file_path)
             print('Removed:', local_file_path)
 
 
