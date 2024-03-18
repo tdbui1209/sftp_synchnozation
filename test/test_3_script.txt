@@ -1,0 +1,6 @@
+option batch on
+option confirm off
+open sftp://username:password@host:22 -hostkey="key"
+put test_sftp\test_3.txt /test_sftp/
+echo Done!
+exit
