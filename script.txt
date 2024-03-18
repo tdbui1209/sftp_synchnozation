@@ -1,0 +1,8 @@
+option batch on
+option confirm off
+# retry on 3 hours if connection is broken
+option reconnecttime 10800
+open sftp://username:password@host:22 -hostkey="key"
+synchronize local -mirror -delete "local_directory" "remote_directory"
+echo Done!
+exit
